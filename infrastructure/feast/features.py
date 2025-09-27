@@ -1,12 +1,13 @@
+# infrastructure/feast/features.py
 from feast import Entity, FeatureView, Field, FileSource
 from feast.types import Float32, Int64, String
 from datetime import timedelta
 from entities import product, customer, supplier
 
-# Define feature views with proper schemas
+# Define feature views with CORRECTED paths and explicit timestamp fields
 product_demand_source = FileSource(
-    path="path/to/product_demand_data.parquet",
-    event_timestamp_column="event_timestamp",
+    path="data/raw/product_demand/product_demand_data.parquet",
+    timestamp_field="event_timestamp",  # Explicitly specify the main timestamp field
     created_timestamp_column="created_timestamp",
 )
 
@@ -26,8 +27,8 @@ product_demand_features = FeatureView(
 )
 
 customer_behavior_source = FileSource(
-    path="path/to/customer_behavior_data.parquet",
-    event_timestamp_column="event_timestamp",
+    path="data/raw/customer_behavior/customer_behavior_data.parquet",
+    timestamp_field="event_timestamp",  # Explicitly specify the main timestamp field
     created_timestamp_column="created_timestamp",
 )
 
@@ -47,8 +48,8 @@ customer_behavior_features = FeatureView(
 )
 
 supplier_performance_source = FileSource(
-    path="path/to/supplier_performance_data.parquet",
-    event_timestamp_column="event_timestamp",
+    path="data/raw/supplier_performance/supplier_performance_data.parquet",
+    timestamp_field="event_timestamp",  # Explicitly specify the main timestamp field
     created_timestamp_column="created_timestamp",
 )
 

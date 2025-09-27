@@ -1,9 +1,10 @@
-project: aurora_ml
-registry: data/registry.db
+# infrastructure/feast/feature_store.yaml
+project: aurora_erp
+registry: data/feature_store/registry.db
 provider: local
 online_store:
-  type: redis
-  connection_string: redis-master.aurora-dev.svc.cluster.local:6379
+    type: sqlite
+    path: data/feature_store/online_store.db
 offline_store:
-  type: file
-entity_key_serialization_version: 2
+    type: file
+entity_key_serialization_version: 3  # Updated to version 3 to fix deprecation..
