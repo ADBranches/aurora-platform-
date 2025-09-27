@@ -41,3 +41,4 @@ class BaseMetrics:
     def track_request(self, method: str, endpoint: str, status: int, duration: float):
         self.requests_total.labels(method=method, endpoint=endpoint, status=status).inc()
         self.request_duration.labels(method=method, endpoint=endpoint).observe(duration)
+        

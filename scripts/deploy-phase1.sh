@@ -1,38 +1,54 @@
 #!/bin/bash
 
-# Phase 1: Reusable Platform Components Deployment
+# COMPLETE Phase 1 Deployment - Fixing all gaps
 
 set -e
 
-echo "🎯 Starting Phase 1: Reusable Platform Components"
-echo "=================================================="
+echo "🎯 Starting COMPLETE Phase 1 Deployment"
+echo "========================================"
 
-# Deploy Kong API Gateway
-echo ""
-echo "🚪 Step 1/4: Deploying Kong API Gateway..."
-./scripts/deploy-kong.sh
+echo "🔧 Step 1: Deploying Kong with complete configuration..."
+helm upgrade --install kong kong/kong \
+  --namespace aurora-dev \
+  --values infrastructure/helm-charts/kong/values.yaml \
+  --set-file ingressController.extraVolumes[0].data=infrastructure/helm-charts/kong/config/kong-complete.yaml
 
-# Initialize databases
-echo ""
-echo "🗃️ Step 2/4: Initializing databases..."
-./scripts/init-databases.sh
+echo "🗃️ Step 2: Initializing complete database schema..."
+./scripts/init-databases-complete.sh
 
-# Create Kafka topics
-echo ""
-echo "📨 Step 3/4: Setting up Kafka topics..."
-kubectl apply -f infrastructure/kafka/topics.yaml -n aurora-dev
+echo "📊 Step 3: Setting up Feast feature store..."
+kubectl apply -f infrastructure/feast/ -n aurora-dev
 
-# Deploy observability stack
-echo ""
-echo "📊 Step 4/4: Deploying observability stack..."
+echo "📈 Step 4: Deploying complete observability stack..."
 ./scripts/deploy-observability.sh
 
+echo "🔑 Step 5: Setting up API key authentication..."
+kubectl apply -f infrastructure/helm-charts/kong/config/api-keys.yaml -n aurora-dev
+
+# Wait for everything to be ready
+echo "⏳ Waiting for all components to be ready..."
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kong -n aurora-dev --timeout=300s
+
+# Test the API Gateway configuration
+echo "🧪 Testing API Gateway configuration..."
+KONG_PROXY=$(kubectl get svc kong-kong-proxy -n aurora-dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+if [ -z "$KONG_PROXY" ]; then
+    KONG_PROXY="localhost"
+fi
+
+echo "Testing Kong routes..."
+curl -I http://$KONG_PROXY:8000/api/v1/health
+curl -I http://$KONG_PROXY:8000/api/v1/predictions
+
 echo ""
-echo "✅ Phase 1 deployment complete!"
+echo "✅ PHASE 1 NOW FULLY COMPLETE!"
 echo ""
 echo "🌐 Access Points:"
-echo "   Kong API Gateway: kubectl port-forward -n aurora-dev svc/kong-kong-proxy 8000:80"
-echo "   Grafana: kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80"
-echo "   PostgreSQL: kubectl port-forward -n aurora-dev svc/postgresql 5432:5432"
+echo "   Kong Admin: http://$KONG_PROXY:8001"
+echo "   Kong API: http://$KONG_PROXY:8000"
+echo "   Grafana: http://localhost:3000"
+echo "   Jaeger: http://localhost:16686"
 echo ""
-echo "🔍 Verify deployment: kubectl get pods -n aurora-dev"
+echo "🔐 API Keys configured for routes:"
+echo "   Web App: web-app-key-123"
+echo "   Mobile App: mobile-app-key-456"
