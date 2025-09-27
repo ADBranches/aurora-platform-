@@ -1,0 +1,51 @@
+image:
+  repository: postgres
+  tag: "15.0"
+  pullPolicy: IfNotPresent
+
+auth:
+  postgresPassword: "aurora123"
+  database: "aurora_core"
+  username: "aurora_user"
+
+primary:
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+service:
+  type: ClusterIP
+  port: 5432
+  image:
+  repository: postgres
+  tag: "15.0"
+  pullPolicy: IfNotPresent
+
+auth:
+  postgresPassword: "aurora123"
+  database: "aurora_core"
+  username: "aurora_user"
+
+primary:
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+service:
+  type: ClusterIP
+  port: 5432
+  

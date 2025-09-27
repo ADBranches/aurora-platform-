@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-config
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS aurora_events;
+    CREATE DATABASE IF NOT EXISTS aurora_ml;
+    

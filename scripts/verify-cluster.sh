@@ -1,10 +1,12 @@
 #!/bin/bash
+# Auto-reconnect if context is lost
+kubectl config use-context minikube 2>/dev/null || true
 
-# Add this check at the beginning of verify-cluster.sh
+# for advanced persistence.....
 if ! kubectl cluster-info &>/dev/null; then
-    echo "❌ Kubernetes cluster is not running or not configured"
-    echo "💡 Start with: minikube start --driver=docker"
-    exit 1
+    echo "🔧 Reconfiguring kubectl context..."
+    minikube start 2>/dev/null || true
+    eval $(minikube docker-env 2>/dev/null) || true
 fi
 
 # Kubernetes Cluster Verification Script
@@ -32,3 +34,5 @@ echo "🎯 Current context:"
 kubectl config current-context
 
 echo "✅ Cluster verification complete!"
+
+minikube update-context
