@@ -1,0 +1,4 @@
+scripts/minikube-linux-amd64
+*.bin
+*.tar.gz
+large-files/
