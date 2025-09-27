@@ -1,25 +1,77 @@
 _format_version: "3.0"
+
+# 1. SERVICES - Define upstream services
 services:
   - name: aurora-api-service
     url: http://aurora-api.aurora-dev.svc.cluster.local:8000
-    routes:
-      - name: aurora-api-route
-        paths:
-          - /api/v1/
-        strip_path: true
-        methods: ["GET", "POST", "PUT", "DELETE"]
-        
+    enabled: true
+    
+  - name: prediction-service
+    url: http://prediction-service.aurora-dev.svc.cluster.local:8080
+    enabled: true
+
+  - name: erp-connector-service
+    url: http://erp-connector.aurora-dev.svc.cluster.local:8000
+    enabled: true
+
+# 2. ROUTES - Define API routes (REQUIRED - This was missing!)
+routes:
+  - name: aurora-api-v1-route
+    paths: ["/api/v1/health", "/api/v1/metrics"]
+    methods: ["GET"]
+    service: aurora-api-service
+    strip_path: true
+    
+  - name: prediction-api-route
+    paths: ["/api/v1/predictions"]
+    methods: ["GET", "POST"]
+    service: prediction-service
+    strip_path: true
+    
+  - name: erp-connector-route
+    paths: ["/api/v1/erp/events"]
+    methods: ["GET", "POST"]
+    service: erp-connector-service
+    strip_path: true
+
+  - name: admin-api-route
+    paths: ["/admin/health", "/admin/metrics"]
+    methods: ["GET"]
+    service: aurora-api-service
+    strip_path: true
+
+# 3. PLUGINS - Authentication & Security Middleware (REQUIRED)
 plugins:
+  - name: key-auth
+    config:
+      key_names: ["X-API-Key"]
+      hide_credentials: true
+    route: prediction-api-route
+    
+  - name: rate-limiting
+    config:
+      minute: 60
+      hour: 1000
+      policy: local
+    service: aurora-api-service
+    
   - name: cors
     config:
-      origins: ["*"]
+      origins: ["http://localhost:3000", "https://aurora.example.com"]
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-      headers: ["Accept", "Authorization", "Content-Type"]
+      headers: ["Accept", "Authorization", "Content-Type", "X-API-Key"]
       credentials: true
-      
+      max_age: 3600
+
   - name: request-transformer
     config:
       add:
         headers:
           X-Aurora-Gateway: "kong-v1"
-          
+          X-Aurora-Request-ID: "$(uuid)"
+      remove:
+        headers: ["X-Forwarded-For"]
+
+  - name: prometheus
+    config:
+      per_consumer: false

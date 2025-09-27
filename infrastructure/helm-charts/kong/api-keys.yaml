@@ -1,0 +1,18 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: aurora-api-consumer
+  annotations:
+    kubernetes.io/ingress.class: kong
+consumers:
+- username: aurora-web-app
+  custom_id: web-app-001
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: api-key-auth
+plugin: key-auth
+config:
+  key_names: ["X-API-Key"]
+  hide_credentials: true
