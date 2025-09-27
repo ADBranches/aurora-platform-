@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-connector
+  labels:
+    app: erp-connector
+    app.kubernetes.io/part-of: aurora
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: erp-connector
+  template:
+    metadata:
+      labels:
+        app: erp-connector
+        app.kubernetes.io/part-of: aurora
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: erp-connector
+        image: aurora/erp-connector:latest
+        ports:
+        - containerPort: 8000
+          name: metrics
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka.aurora-dev.svc.cluster.local:9092"
+        - name: ERP_BASE_URL
+          value: "http://jde-erp.example.com"
+        - name: POLL_INTERVAL_SECONDS
+          value: "30"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-connector
+spec:
+  selector:
+    app: erp-connector
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: metrics
+    
