@@ -7,11 +7,16 @@ set -e
 echo "🎯 Starting COMPLETE Phase 1 Deployment"
 echo "========================================"
 
+# Ensuring namespace exists (idempotent - safe to run every time)
+echo "📦 Ensuring aurora-dev namespace exists..."
+kubectl create namespace aurora-dev --dry-run=client -o yaml | kubectl apply -f - || true
+
+
 echo "🔧 Step 1: Deploying Kong with complete configuration..."
 helm upgrade --install kong kong/kong \
   --namespace aurora-dev \
   --values infrastructure/helm-charts/kong/values.yaml \
-  --set-file ingressController.extraVolumes[0].data=infrastructure/helm-charts/kong/config/kong-complete.yaml
+  --set-file ingressController.extraVolumes[0].data=infrastructure/helm-charts/kong/config/kong.yaml
 
 echo "🗃️ Step 2: Initializing complete database schema..."
 ./scripts/init-databases-complete.sh
