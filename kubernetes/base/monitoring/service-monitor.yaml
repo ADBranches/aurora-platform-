@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: aurora-services
+  labels:
+    app: aurora
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: aurora
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics
+    

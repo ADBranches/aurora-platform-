@@ -1,0 +1,9 @@
+project: aurora_ml
+registry: data/registry.db
+provider: local
+online_store:
+  type: redis
+  connection_string: redis-master.aurora-dev.svc.cluster.local:6379
+offline_store:
+  type: file
+entity_key_serialization_version: 2

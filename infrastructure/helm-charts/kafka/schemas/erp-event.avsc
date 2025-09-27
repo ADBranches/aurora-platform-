@@ -1,0 +1,35 @@
+{
+  "type": "record",
+  "name": "ERPEvent",
+  "namespace": "com.aurora.events",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string"
+    },
+    {
+      "name": "eventType",
+      "type": {
+        "type": "enum",
+        "name": "EventType",
+        "symbols": ["SALE_ORDER_CREATED", "INVENTORY_UPDATED", "PURCHASE_ORDER_RECEIVED"]
+      }
+    },
+    {
+      "name": "entityId",
+      "type": "string"
+    },
+    {
+      "name": "timestamp",
+      "type": "long"
+    },
+    {
+      "name": "payload",
+      "type": "string"
+    },
+    {
+      "name": "sourceSystem",
+      "type": "string"
+    }
+  ]
+}
