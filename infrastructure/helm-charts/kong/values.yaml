@@ -1,0 +1,25 @@
+kong:
+  image:
+    repository: kong/kong-gateway
+    tag: "3.4"
+  
+  env:
+    prefix: /kong_prefix/
+    database: "off"  # Use DB-less mode for simplicity
+    declarative_config: /etc/kong/declarative/kong.yaml
+  
+  ingressController:
+    enabled: true
+    installCRDs: false
+  
+  proxy:
+    enabled: true
+    type: LoadBalancer
+    
+  serviceMonitor:
+    enabled: true
+
+ingressController:
+  enabled: true
+  installCRDs: false
+  

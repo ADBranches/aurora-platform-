@@ -1,0 +1,25 @@
+_format_version: "3.0"
+services:
+  - name: aurora-api-service
+    url: http://aurora-api.aurora-dev.svc.cluster.local:8000
+    routes:
+      - name: aurora-api-route
+        paths:
+          - /api/v1/
+        strip_path: true
+        methods: ["GET", "POST", "PUT", "DELETE"]
+        
+plugins:
+  - name: cors
+    config:
+      origins: ["*"]
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      headers: ["Accept", "Authorization", "Content-Type"]
+      credentials: true
+      
+  - name: request-transformer
+    config:
+      add:
+        headers:
+          X-Aurora-Gateway: "kong-v1"
+          
