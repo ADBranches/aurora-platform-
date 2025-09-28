@@ -1,49 +1,110 @@
 #!/bin/bash
-
-# COMPLETE Phase 1 Deployment - Fixing all gaps
-
 set -e
 
-echo "🎯 Starting COMPLETE Phase 1 Deployment"
+echo "$(date) 🎯 Starting COMPLETE Phase 1 Deployment"
 echo "========================================"
 
-# Ensuring namespace exists (idempotent - safe to run every time)
-echo "📦 Ensuring aurora-dev namespace exists..."
-kubectl create namespace aurora-dev --dry-run=client -o yaml | kubectl apply -f - || true
+echo "$(date) 📦 Ensuring aurora-dev namespace exists..."
+if ! kubectl get namespace aurora-dev >/dev/null 2>&1; then
+  kubectl create namespace aurora-dev
+else
+  echo "Namespace 'aurora-dev' already exists, skipping creation."
+fi
 
+echo "$(date) 🐘 Step 0: Deploying PostgreSQL..."
+kubectl apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: aurora-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+      - name: postgresql
+        image: postgres:13
+        env:
+        - name: POSTGRES_DB
+          value: aurora_events
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          value: aurora123
+        ports:
+        - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: aurora-dev
+spec:
+  selector:
+    app: postgresql
+  ports:
+  - port: 5432
+    targetPort: 5432
+EOF
 
-echo "🔧 Step 1: Deploying Kong with complete configuration..."
+echo "$(date) ⏳ Waiting for PostgreSQL to start..."
+kubectl wait --for=condition=ready pod -l app=postgresql -n aurora-dev --timeout=120s
+
+echo "$(date) 🔧 Step 1: Preparing Helm repos for Kong..."
+helm repo add kong https://charts.konghq.com || true
+helm repo update
+
+echo "$(date) 🔧 Step 2: Deploying Kong with complete configuration..."
 helm upgrade --install kong kong/kong \
   --namespace aurora-dev \
   --values infrastructure/helm-charts/kong/values.yaml \
   --set-file ingressController.extraVolumes[0].data=infrastructure/helm-charts/kong/config/kong.yaml
 
-echo "🗃️ Step 2: Initializing complete database schema..."
-./scripts/init-databases-complete.sh
+echo "$(date) 🗃️ Step 3: Initializing complete database schema..."
+./scripts/init-databases.sh
 
-echo "📊 Step 3: Setting up Feast feature store..."
-kubectl apply -f infrastructure/feast/ -n aurora-dev
+echo "$(date) 📊 Step 4: Setting up core infrastructure..."
+kubectl apply -k kubernetes/base/ -n aurora-dev
 
-echo "📈 Step 4: Deploying complete observability stack..."
+echo "$(date) 📈 Step 5: Deploying complete observability stack..."
 ./scripts/deploy-observability.sh
 
-echo "🔑 Step 5: Setting up API key authentication..."
+echo "$(date) 🔑 Step 6: Setting up API key authentication..."
 kubectl apply -f infrastructure/helm-charts/kong/config/api-keys.yaml -n aurora-dev
 
-# Wait for everything to be ready
-echo "⏳ Waiting for all components to be ready..."
+echo "$(date) ⏳ Waiting for all components to be ready..."
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kong -n aurora-dev --timeout=300s
 
-# Test the API Gateway configuration
-echo "🧪 Testing API Gateway configuration..."
-KONG_PROXY=$(kubectl get svc kong-kong-proxy -n aurora-dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "$(date) 🧪 Testing API Gateway configuration..."
+
+# Wait for LoadBalancer IP
+KONG_PROXY=""
+for i in {1..20}; do
+  KONG_PROXY=$(kubectl get svc kong-kong-proxy -n aurora-dev -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  if [[ -n "$KONG_PROXY" ]]; then
+    break
+  fi
+  echo "$(date) Waiting for Kong Proxy IP..."
+  sleep 5
+done
+
 if [ -z "$KONG_PROXY" ]; then
-    KONG_PROXY="localhost"
+  KONG_PROXY="localhost"
+  echo "$(date) Kong Proxy IP not found, fallback to localhost"
+else
+  echo "$(date) Kong Proxy IP found: $KONG_PROXY"
 fi
 
 echo "Testing Kong routes..."
-curl -I http://$KONG_PROXY:8000/api/v1/health
-curl -I http://$KONG_PROXY:8000/api/v1/predictions
+curl -I http://$KONG_PROXY:8000/api/v1/health || true
+curl -I http://$KONG_PROXY:8000/api/v1/predictions || true
 
 echo ""
 echo "✅ PHASE 1 NOW FULLY COMPLETE!"

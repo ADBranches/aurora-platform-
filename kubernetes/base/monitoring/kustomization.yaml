@@ -4,11 +4,7 @@ kind: Kustomization
 namespace: aurora-dev
 
 resources:
-- kafka.yaml
-- postgresql.yaml
-- monitoring/
-- service-account.yaml
-- namespace.yaml
+- service-monitor.yaml
 
 
 commonAnnotations:

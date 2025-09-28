@@ -6,19 +6,40 @@ set -e
 
 echo "🗃️ Initializing complete Aurora database schema..."
 
-# Create comprehensive database structure
-kubectl run postgres-init --rm -i --restart='Never' --namespace aurora-dev \
+# Create a temporary SQL file for user creation
+cat << 'EOF' > /tmp/create_users.sql
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'aurora_reader') THEN
+        CREATE USER aurora_reader WITH PASSWORD 'reader123';
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'aurora_writer') THEN
+        CREATE USER aurora_writer WITH PASSWORD 'writer123';
+    END IF;
+END;
+$$;
+EOF
+
+# Create users using the SQL file by piping it into psql inside the Kubernetes pod
+kubectl run postgres-users --rm -i --restart='Never' --namespace aurora-dev \
   --image docker.io/bitnami/postgresql:15.0.0 \
   --env="PGPASSWORD=aurora123" \
-  --command -- psql -h postgresql -U postgres -d aurora_events -c "
+  --command -- sh -c "psql -h postgresql -U postgres -d aurora_events" < /tmp/create_users.sql
 
+# Create main database structure using a separate SQL file for multiline commands
+cat << 'EOF' > /tmp/init_db.sql
 -- Create extensions
-CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
-CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Core events table with partitioning by month
 CREATE TABLE IF NOT EXISTS erp_events (
-    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID DEFAULT gen_random_uuid(),
     event_type VARCHAR(100) NOT NULL,
     entity_type VARCHAR(50) NOT NULL,
     entity_id VARCHAR(100) NOT NULL,
@@ -27,16 +48,18 @@ CREATE TABLE IF NOT EXISTS erp_events (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed BOOLEAN DEFAULT FALSE,
     processed_at TIMESTAMP WITH TIME ZONE,
-    error_message TEXT
+    error_message TEXT,
+    PRIMARY KEY (event_id, created_at)
 ) PARTITION BY RANGE (created_at);
 
--- Create monthly partitions for current and next month
+-- Create monthly partitions
 CREATE TABLE IF NOT EXISTS erp_events_2024_01 PARTITION OF erp_events 
     FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+
 CREATE TABLE IF NOT EXISTS erp_events_2024_02 PARTITION OF erp_events 
     FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
 
--- ML features table with versioning
+-- ML features table
 CREATE TABLE IF NOT EXISTS ml_features (
     feature_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type VARCHAR(50) NOT NULL,
@@ -64,32 +87,34 @@ CREATE TABLE IF NOT EXISTS gateway_audit (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create performance indexes
+-- Create indexes
 CREATE INDEX IF NOT EXISTS idx_erp_events_type_entity ON erp_events(event_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_erp_events_created_processed ON erp_events(created_at, processed);
 CREATE INDEX IF NOT EXISTS idx_ml_features_lookup ON ml_features(entity_type, entity_id, valid_from, valid_to);
 CREATE INDEX IF NOT EXISTS idx_gateway_audit_created ON gateway_audit(created_at);
 CREATE INDEX IF NOT EXISTS idx_gateway_audit_path ON gateway_audit(path, created_at);
 
--- Create read-only user for microservices
-CREATE USER aurora_reader WITH PASSWORD 'reader123';
-GRANT CONNECT ON DATABASE aurora_events TO aurora_reader;
-GRANT USAGE ON SCHEMA public TO aurora_reader;
+-- Grant permissions
+GRANT CONNECT ON DATABASE aurora_events TO aurora_reader, aurora_writer;
+GRANT USAGE ON SCHEMA public TO aurora_reader, aurora_writer;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO aurora_reader;
-
--- Create read-write user for services
-CREATE USER aurora_writer WITH PASSWORD 'writer123';
-GRANT CONNECT ON DATABASE aurora_events TO aurora_writer;
-GRANT USAGE ON SCHEMA public TO aurora_writer;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO aurora_writer;
 
--- Insert initial API keys for Kong
+-- Insert initial data
 INSERT INTO gateway_audit (request_id, method, path, status_code, api_key_hash) 
 VALUES 
     ('init-001', 'POST', '/api/v1/apikeys', 201, crypt('web-app-key-123', gen_salt('bf'))),
     ('init-002', 'POST', '/api/v1/apikeys', 201, crypt('mobile-app-key-456', gen_salt('bf')))
 ON CONFLICT DO NOTHING;
+EOF
 
-"
+# Execute the schema initialization SQL file by piping it into psql inside Kubernetes pod
+kubectl run postgres-init --rm -i --restart='Never' --namespace aurora-dev \
+  --image docker.io/bitnami/postgresql:15.0.0 \
+  --env="PGPASSWORD=aurora123" \
+  --command -- sh -c "psql -h postgresql -U postgres -d aurora_events" < /tmp/init_db.sql
+
+# Clean up local temporary files
+rm -f /tmp/create_users.sql /tmp/init_db.sql
 
 echo "✅ Complete database schema initialized!"
