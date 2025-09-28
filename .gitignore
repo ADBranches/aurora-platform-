@@ -1,13 +1,47 @@
-env/
-logs/
-temp/
-*.env
-*.pyc
-__pycache__/
 .DS_Store
-node_modules/
 dist/
 large-files/
-*.tar.gz
 *.bin
 scripts/minikube-linux-amd64
+
+
+# Python
+env/
+venv/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node.js
+node_modules/
+dist/
+npm-debug.log
+yarn-error.log
+
+# Docker
+*.log
+*.tar.gz
+docker-compose.override.yml
+
+# Sensitive
+.env
+*.env
+*.pem
+*.key
+*.crt
+
+# Temporary
+temp/
+logs/
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace

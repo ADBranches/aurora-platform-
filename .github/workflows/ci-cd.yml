@@ -1,43 +1,65 @@
+
+**Enhanced `.github/workflows/ci-cd.yml`**:
+```yaml
 name: Aurora CI/CD
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    
-    - name: Run security audit
-      run: |
-        docker scout quickview . || true
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pytest pandas scikit-learn fastapi uvicorn
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install Node.js dependencies
+        working-directory: services/api-gateway
+        run: npm install
+      - name: Run Python linting
+        run: flake8 . --max-line-length=120 --exclude=env,node_modules
+      - name: Run Node.js linting
+        working-directory: services/api-gateway
+        run: npm run lint
+      - name: Run Python unit tests
+        run: docker-compose run --rm app pytest
+      - name: Run Node.js unit tests
+        working-directory: services/api-gateway
+        run: npm test
+      - name: Run security audit
+        run: |
+          docker scout quickview . || true
 
   build-and-push:
-    needs: test
+    needs: lint-and-test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Build Docker images
-      run: |
-        docker build -t aurora/api-gateway -f services/api-gateway/Dockerfile .
-        # Add more service builds here
-    
-    - name: Run integration tests
-      run: echo "Integration tests would run here"
+      - uses: actions/checkout@v3
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build Docker images
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/api-gateway:${{ github.sha }} -f services/api-gateway/Dockerfile services/api-gateway
+          docker build -t ghcr.io/${{ github.repository }}/auth-service:${{ github.sha }} -f services/auth-service/Dockerfile services/auth-service
+          # Add more services as needed
+      - name: Push Docker images
+        run: |
+          docker push ghcr.io/${{ github.repository }}/api-gateway:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/auth-service:${{ github.sha }}
+      - name: Run integration tests
+        run: |
+          docker-compose -f docker-compose.yml -f docker-compose.test.yml up --abort-on-container-exit
