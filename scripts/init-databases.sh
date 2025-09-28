@@ -1,10 +1,16 @@
 #!/bin/bash
 
-# Complete Database Initialization Script
+# Database Initialization Script for Aurora (Docker Compose)
 
 set -e
 
-echo "🗃️ Initializing complete Aurora database schema..."
+echo "🗃️ Initializing Aurora database schema..."
+
+# Wait for PostgreSQL to be ready
+until docker-compose exec -T postgres pg_isready -U postgres; do
+  echo "Waiting for PostgreSQL..."
+  sleep 2
+done
 
 # Create a temporary SQL file for user creation
 cat << 'EOF' > /tmp/create_users.sql
@@ -25,13 +31,10 @@ END;
 $$;
 EOF
 
-# Create users using the SQL file by piping it into psql inside the Kubernetes pod
-kubectl run postgres-users --rm -i --restart='Never' --namespace aurora-dev \
-  --image docker.io/bitnami/postgresql:15.0.0 \
-  --env="PGPASSWORD=aurora123" \
-  --command -- sh -c "psql -h postgresql -U postgres -d aurora_events" < /tmp/create_users.sql
+# Execute user creation SQL
+docker-compose exec -T postgres psql -U postgres -d aurora_events -f /tmp/create_users.sql
 
-# Create main database structure using a separate SQL file for multiline commands
+# Create main database structure
 cat << 'EOF' > /tmp/init_db.sql
 -- Create extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -55,7 +58,6 @@ CREATE TABLE IF NOT EXISTS erp_events (
 -- Create monthly partitions
 CREATE TABLE IF NOT EXISTS erp_events_2024_01 PARTITION OF erp_events 
     FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-
 CREATE TABLE IF NOT EXISTS erp_events_2024_02 PARTITION OF erp_events 
     FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
 
@@ -108,13 +110,20 @@ VALUES
 ON CONFLICT DO NOTHING;
 EOF
 
-# Execute the schema initialization SQL file by piping it into psql inside Kubernetes pod
-kubectl run postgres-init --rm -i --restart='Never' --namespace aurora-dev \
-  --image docker.io/bitnami/postgresql:15.0.0 \
-  --env="PGPASSWORD=aurora123" \
-  --command -- sh -c "psql -h postgresql -U postgres -d aurora_events" < /tmp/init_db.sql
+# Execute schema initialization SQL
+docker-compose exec -T postgres psql -U postgres -d aurora_events -f /tmp/init_db.sql
 
-# Clean up local temporary files
+# Clean up temporary files
 rm -f /tmp/create_users.sql /tmp/init_db.sql
 
-echo "✅ Complete database schema initialized!"
+# Initialize Kafka topics
+echo "📤 Initializing Kafka topics..."
+docker-compose exec -T kafka kafka-topics.sh --create --topic erp-events --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1
+docker-compose exec -T kafka kafka-topics.sh --create --topic ml-features --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1
+
+# Initialize Feast feature store
+echo "📊 Initializing Feast feature store..."
+docker-compose exec -T feast feast init aurora_features
+docker-compose exec -T feast feast apply
+
+echo "✅ Database and infrastructure initialized!"

@@ -1,0 +1,102 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora123}
+      POSTGRES_DB: aurora_events
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - aurora-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    networks:
+      - aurora-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - aurora-net
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    networks:
+      - aurora-net
+
+  feast:
+    image: feastdev/feast:latest
+    environment:
+      FEAST_REDIS_HOST: redis
+      FEAST_POSTGRES_HOST: postgres
+      FEAST_POSTGRES_DB: aurora_events
+      FEAST_POSTGRES_USER: postgres
+      FEAST_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora123}
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./feast:/feast
+    networks:
+      - aurora-net
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - aurora-net
+
+  grafana:
+    image: grafana/grafana:9.5.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin123}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - aurora-net
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - kafka
+      - redis
+    networks:
+      - aurora-net
+
+networks:
+  aurora-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
