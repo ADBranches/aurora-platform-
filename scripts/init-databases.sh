@@ -1,25 +1,47 @@
 #!/bin/bash
 
-# Database Initialization Script for Aurora (Docker Compose)
+# Aurora Database Initialization Script (Docker Compose)
 
 set -e
 
-echo "🗃️ Initializing Aurora database schema..."
+echo "🗃️ Initializing Aurora databases (PostgreSQL, MongoDB)..."
+
+# Load environment variables
+if [ -f .env ]; then
+  export $(cat .env | grep -v '^#' | xargs)
+fi
+
+# Default values
+POSTGRES_USER=${POSTGRES_USER:-postgres}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aurora123}
+POSTGRES_DB=${POSTGRES_DB:-aurora_events}
+MONGO_USER=${MONGO_USER:-aurora_mongo}
+MONGO_PASSWORD=${MONGO_PASSWORD:-aurora-mongo-123}
+MONGO_DB=${MONGO_DB:-aurora_data}
+
+echo "📊 Using database configurations:"
+echo "   PostgreSQL: ${POSTGRES_USER}@${POSTGRES_DB}"
+echo "   MongoDB: ${MONGO_USER}@${MONGO_DB}"
 
 # Wait for PostgreSQL to be ready
-until docker-compose exec -T postgres pg_isready -U postgres; do
+echo "⏳ Waiting for PostgreSQL..."
+until docker compose exec -T postgres pg_isready -U $POSTGRES_USER >/dev/null 2>&1; do
   echo "Waiting for PostgreSQL..."
   sleep 2
 done
 
-# Create a temporary SQL file for user creation
-cat << 'EOF' > /tmp/create_users.sql
+echo "✅ PostgreSQL is ready!"
+
+# Create PostgreSQL users and schema
+echo "👥 Creating PostgreSQL users and schema..."
+docker compose exec -T postgres psql -U $POSTGRES_USER -d $POSTGRES_DB << 'EOF'
+-- Create users
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'aurora_reader') THEN
         CREATE USER aurora_reader WITH PASSWORD 'reader123';
     END IF;
-END;
+END
 $$;
 
 DO $$
@@ -27,15 +49,9 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'aurora_writer') THEN
         CREATE USER aurora_writer WITH PASSWORD 'writer123';
     END IF;
-END;
+END
 $$;
-EOF
 
-# Execute user creation SQL
-docker-compose exec -T postgres psql -U postgres -d aurora_events -f /tmp/create_users.sql
-
-# Create main database structure
-cat << 'EOF' > /tmp/init_db.sql
 -- Create extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -60,6 +76,10 @@ CREATE TABLE IF NOT EXISTS erp_events_2024_01 PARTITION OF erp_events
     FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
 CREATE TABLE IF NOT EXISTS erp_events_2024_02 PARTITION OF erp_events 
     FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE IF NOT EXISTS erp_events_2025_01 PARTITION OF erp_events 
+    FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
+CREATE TABLE IF NOT EXISTS erp_events_2025_02 PARTITION OF erp_events 
+    FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
 
 -- ML features table
 CREATE TABLE IF NOT EXISTS ml_features (
@@ -110,20 +130,142 @@ VALUES
 ON CONFLICT DO NOTHING;
 EOF
 
-# Execute schema initialization SQL
-docker-compose exec -T postgres psql -U postgres -d aurora_events -f /tmp/init_db.sql
+echo "✅ PostgreSQL schema created successfully!"
 
-# Clean up temporary files
-rm -f /tmp/create_users.sql /tmp/init_db.sql
+# Wait for MongoDB to be ready (if MongoDB service exists)
+if docker compose ps mongodb --status running | grep -q "mongodb"; then
+    echo "⏳ Waiting for MongoDB..."
+    until docker compose exec -T mongodb mongosh --eval "db.adminCommand('ping')" --quiet >/dev/null 2>&1; do
+        echo "Waiting for MongoDB..."
+        sleep 2
+    done
+
+    echo "✅ MongoDB is ready!"
+    
+    # Initialize MongoDB collections
+    echo "📝 Creating MongoDB collections..."
+    docker compose exec -T mongodb mongosh << EOF
+use $MONGO_DB
+
+// Create external_data collection with schema validation
+db.createCollection('external_data', {
+  validator: {
+    \$jsonSchema: {
+      bsonType: 'object',
+      required: ['source', 'data', 'timestamp'],
+      properties: {
+        source: { bsonType: 'string' },
+        data: { bsonType: 'object' },
+        timestamp: { bsonType: 'date' },
+        metadata: { bsonType: 'object' },
+        status: { bsonType: 'string', enum: ['active', 'archived'] }
+      }
+    }
+  }
+});
+
+// Create audit_logs collection
+db.createCollection('audit_logs', {
+  validator: {
+    \$jsonSchema: {
+      bsonType: 'object',
+      required: ['request_id', 'action', 'timestamp'],
+      properties: {
+        request_id: { bsonType: 'string' },
+        action: { bsonType: 'string' },
+        user_id: { bsonType: 'string' },
+        resource: { bsonType: 'string' },
+        timestamp: { bsonType: 'date' },
+        details: { bsonType: 'object' }
+      }
+    }
+  }
+});
+
+// Create indexes
+db.external_data.createIndex({ source: 1, timestamp: -1 });
+db.external_data.createIndex({ status: 1 });
+db.audit_logs.createIndex({ request_id: 1, timestamp: -1 });
+db.audit_logs.createIndex({ user_id: 1, timestamp: -1 });
+db.audit_logs.createIndex({ action: 1, resource: 1 });
+
+// Insert sample data
+db.external_data.insertOne({
+  source: 'erp_system',
+  data: {
+    customer_id: 'cust_001',
+    order_total: 1500.00,
+    items: 5
+  },
+  timestamp: new Date(),
+  metadata: {
+    version: '1.0',
+    processed: false
+  },
+  status: 'active'
+});
+
+print('✅ MongoDB collections created and initialized');
+EOF
+
+else
+    echo "⚠️  MongoDB not running, skipping MongoDB initialization"
+fi
+
+# # Wait for Kafka to be ready
+# echo "⏳ Waiting for Kafka..."
+# until docker compose exec -T kafka kafka-topics.sh --list --bootstrap-server kafka:9092 >/dev/null 2>&1; do
+#   echo "Waiting for Kafka..."
+#   sleep 2
+# done
+
+# # Initialize Kafka topics
+# echo "📤 Initializing Kafka topics..."
+# docker compose exec -T kafka kafka-topics.sh --create --topic erp-events --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
+# docker compose exec -T kafka kafka-topics.sh --create --topic ml-features --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
+# docker compose exec -T kafka kafka-topics.sh --create --topic predictions --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
+
+# echo "✅ Kafka topics created successfully!"
+# Wait for Kafka to be ready
+echo "⏳ Waiting for Kafka..."
+until nc -z localhost 9092; do
+  echo "Waiting for Kafka..."
+  sleep 2
+done
+
+# Additional wait for Kafka to fully initialize
+echo "Kafka port open, waiting for service to stabilize..."
+sleep 10
 
 # Initialize Kafka topics
 echo "📤 Initializing Kafka topics..."
-docker-compose exec -T kafka kafka-topics.sh --create --topic erp-events --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1
-docker-compose exec -T kafka kafka-topics.sh --create --topic ml-features --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1
+docker compose exec -T kafka kafka-topics.sh --create --topic erp-events --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
+docker compose exec -T kafka kafka-topics.sh --create --topic ml-features --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
+docker compose exec -T kafka kafka-topics.sh --create --topic predictions --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1 --if-not-exists || true
 
-# Initialize Feast feature store
-echo "📊 Initializing Feast feature store..."
-docker-compose exec -T feast feast init aurora_features
-docker-compose exec -T feast feast apply
+echo "✅ Kafka topics created successfully!"
 
-echo "✅ Database and infrastructure initialized!"
+# Wait for Feast to be ready (optional)
+echo "⏳ Waiting for Feast..."
+if docker compose ps feast | grep -q "Up"; then
+  # Use port connectivity check instead of HTTP endpoint
+  until nc -z localhost 6566; do
+    echo "Waiting for Feast..."
+    sleep 2
+  done
+  
+  # Initialize Feast feature store
+  echo "📊 Initializing Feast feature store..."
+  docker compose exec -T feast bash -c "cd /feast && feast init aurora_features || true"
+  docker compose exec -T feast bash -c "cd /feast/aurora_features && feast apply"
+else
+  echo "⚠️  Feast not running, skipping Feast initialization"
+fi
+
+echo "🎉 All databases and infrastructure initialized successfully!"
+echo ""
+echo "📋 Summary:"
+echo "   ✅ PostgreSQL: Users, schema, and initial data created"
+echo "   ✅ MongoDB: Collections and indexes created (if running)"
+echo "   ✅ Kafka: Topics created"
+echo "   ✅ Feast: Feature store initialized (if running)"

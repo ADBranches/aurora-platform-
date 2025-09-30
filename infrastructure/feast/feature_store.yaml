@@ -1,10 +1,35 @@
-# infrastructure/feast/feature_store.yaml
-project: aurora_erp
-registry: data/feature_store/registry.db
+# # infrastructure/feast/feature_store.yaml
+# project: aurora_erp
+# registry: data/feature_store/registry.db
+# provider: local
+# online_store:
+#     type: sqlite
+#     path: data/feature_store/online_store.db
+# offline_store:
+#     type: file
+# entity_key_serialization_version: 3  # Updated to version 3 to fix deprecation..
+
+
+
+# project: aurora_features
+# registry: /feast/aurora_features/registry.db
+# provider: local
+# online_store:
+#   type: redis
+#   connection_string: redis:6379,password=${REDIS_PASSWORD}
+# offline_store:
+#   type: postgres
+#   host: postgres
+#   port: 5432
+#   database: ${POSTGRES_DB}
+#   user: ${POSTGRES_USER}
+#   password: ${POSTGRES_PASSWORD}
+
+project: aurora_features
+registry: data/registry.db
 provider: local
 online_store:
-    type: sqlite
-    path: data/feature_store/online_store.db
+  type: redis
+  connection_string: redis:6379
 offline_store:
-    type: file
-entity_key_serialization_version: 3  # Updated to version 3 to fix deprecation..
+  type: file

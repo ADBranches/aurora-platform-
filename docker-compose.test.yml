@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  api-gateway:
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ENVIRONMENT: test
+    command: ["pytest", "-v"]
